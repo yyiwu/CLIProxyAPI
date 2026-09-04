@@ -46,6 +46,8 @@ func normalizedRoutingRuntimeState(cfg *config.Config) routingRuntimeState {
 		state.strategy = "weighted-round-robin"
 	case "fill-first", "fillfirst", "ff":
 		state.strategy = "fill-first"
+	case "cache-first", "cachefirst", "cf":
+		state.strategy = "cache-first"
 	}
 	state.sessionAffinity = cfg.Routing.SessionAffinity
 	if ttl := strings.TrimSpace(cfg.Routing.SessionAffinityTTL); ttl != "" {
@@ -64,16 +66,22 @@ func normalizedRoutingRuntimeState(cfg *config.Config) routingRuntimeState {
 
 func newRoutingSelector(state routingRuntimeState) coreauth.Selector {
 	var selector coreauth.Selector
+	subagents := state.sessionAffinitySubagents
 	switch state.strategy {
 	case "weighted-round-robin":
 		selector = &coreauth.WeightedRoundRobinSelector{}
 	case "fill-first":
 		selector = &coreauth.FillFirstSelector{}
+	case "cache-first":
+		selector = coreauth.NewSessionAffinitySelectorWithConfig(coreauth.SessionAffinityConfig{
+			Fallback:         &coreauth.FillFirstSelector{},
+			TTL:              state.sessionAffinityTTL,
+			SubagentAffinity: &subagents,
+		})
 	default:
 		selector = &coreauth.RoundRobinSelector{}
 	}
-	if state.sessionAffinity {
-		subagents := state.sessionAffinitySubagents
+	if state.sessionAffinity && state.strategy != "cache-first" {
 		selector = coreauth.NewSessionAffinitySelectorWithConfig(coreauth.SessionAffinityConfig{
 			Fallback:         selector,
 			TTL:              state.sessionAffinityTTL,

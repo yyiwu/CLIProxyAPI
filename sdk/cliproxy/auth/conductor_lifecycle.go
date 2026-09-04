@@ -73,6 +73,9 @@ func (m *Manager) Register(ctx context.Context, auth *Auth) (*Auth, error) {
 	if errWeight := ValidateAuthWeight(auth); errWeight != nil {
 		return nil, fmt.Errorf("register auth: %w", errWeight)
 	}
+	if errConcurrency := ValidateAuthConcurrency(auth); errConcurrency != nil {
+		return nil, fmt.Errorf("register auth: %w", errConcurrency)
+	}
 	if auth.ID == "" {
 		auth.ID = uuid.NewString()
 	}
@@ -128,6 +131,9 @@ func (m *Manager) Update(ctx context.Context, auth *Auth) (*Auth, error) {
 	NormalizeCredentialMetadata(auth.Metadata)
 	if errWeight := ValidateAuthWeight(auth); errWeight != nil {
 		return nil, fmt.Errorf("update auth: %w", errWeight)
+	}
+	if errConcurrency := ValidateAuthConcurrency(auth); errConcurrency != nil {
+		return nil, fmt.Errorf("update auth: %w", errConcurrency)
 	}
 	m.mu.Lock()
 	existing, ok := m.auths[auth.ID]
@@ -294,6 +300,9 @@ func (m *Manager) Load(ctx context.Context) error {
 		}
 		NormalizeCredentialMetadata(auth.Metadata)
 		if errWeight := ValidateAuthWeight(auth); errWeight != nil {
+			continue
+		}
+		if errConcurrency := ValidateAuthConcurrency(auth); errConcurrency != nil {
 			continue
 		}
 		auth.EnsureIndex()

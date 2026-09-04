@@ -85,6 +85,9 @@ func synthesizeFileAuths(ctx *SynthesisContext, fullPath string, data []byte) ([
 	if errWeight := coreauth.ValidateAuthWeight(&coreauth.Auth{Metadata: metadata}); errWeight != nil {
 		return nil, fmt.Errorf("invalid weight in %s: %w", filepath.Base(fullPath), errWeight)
 	}
+	if errConcurrency := coreauth.ValidateAuthConcurrency(&coreauth.Auth{Metadata: metadata}); errConcurrency != nil {
+		return nil, fmt.Errorf("invalid max_concurrency in %s: %w", filepath.Base(fullPath), errConcurrency)
+	}
 	t, _ := metadata["type"].(string)
 	provider := strings.ToLower(strings.TrimSpace(t))
 	if provider == "gemini" {
@@ -131,6 +134,9 @@ func synthesizeFileAuths(ctx *SynthesisContext, fullPath string, data []byte) ([
 				}
 				if errWeight := coreauth.ApplyAuthWeightMetadata(auth, metadata); errWeight != nil {
 					return nil, fmt.Errorf("invalid plugin auth weight in %s: %w", filepath.Base(fullPath), errWeight)
+				}
+				if errConcurrency := coreauth.ApplyAuthConcurrencyMetadata(auth, metadata); errConcurrency != nil {
+					return nil, fmt.Errorf("invalid plugin auth max_concurrency in %s: %w", filepath.Base(fullPath), errConcurrency)
 				}
 				coreauth.SetOAuthModelAliasesAttribute(auth, perAccountModelAliases)
 				ApplyAuthExcludedModelsMeta(auth, cfg, perAccountExcluded, "oauth")
@@ -213,6 +219,9 @@ func synthesizeFileAuths(ctx *SynthesisContext, fullPath string, data []byte) ([
 	}
 	if errWeight := coreauth.ApplyAuthWeightMetadata(a, metadata); errWeight != nil {
 		return nil, fmt.Errorf("invalid auth weight in %s: %w", filepath.Base(fullPath), errWeight)
+	}
+	if errConcurrency := coreauth.ApplyAuthConcurrencyMetadata(a, metadata); errConcurrency != nil {
+		return nil, fmt.Errorf("invalid auth max_concurrency in %s: %w", filepath.Base(fullPath), errConcurrency)
 	}
 	// Read note from auth file.
 	if rawNote, ok := metadata["note"]; ok {

@@ -99,6 +99,26 @@ func (h *Handler) ListAuthFiles(c *gin.Context) {
 	nameFilter := strings.TrimSpace(c.Query("name"))
 	authIndexFilter := strings.TrimSpace(c.Query("auth_index"))
 	auths := h.authManager.List()
+	if strings.EqualFold(strings.TrimSpace(c.Query("view")), "concurrency") {
+		files := make([]gin.H, 0, len(auths))
+		for _, auth := range auths {
+			if !matchesAuthFileLookup(auth, nameFilter, authIndexFilter) {
+				continue
+			}
+			name := strings.TrimSpace(auth.FileName)
+			if name == "" {
+				name = auth.ID
+			}
+			files = append(files, gin.H{
+				"id":          auth.ID,
+				"auth_index":  lockedAuthIndex(auth),
+				"name":        name,
+				"concurrency": h.authManager.CredentialConcurrency(auth),
+			})
+		}
+		c.JSON(200, gin.H{"files": files})
+		return
+	}
 	files := make([]gin.H, 0, len(auths))
 	for _, auth := range auths {
 		if !matchesAuthFileLookup(auth, nameFilter, authIndexFilter) {
@@ -275,6 +295,11 @@ func (h *Handler) listAuthFilesFromDisk(c *gin.Context) {
 						}
 					}
 				}
+				if cv := gjson.GetBytes(data, coreauth.MetadataMaxConcurrency); cv.Exists() && cv.Type == gjson.Number {
+					if limit, errLimit := coreauth.ParseCredentialConcurrencyLimit(cv.Int()); errLimit == nil && limit > 0 {
+						fileData[coreauth.MetadataMaxConcurrency] = limit
+					}
+				}
 				if nv := gjson.GetBytes(data, "note"); nv.Exists() && nv.Type == gjson.String {
 					if trimmed := strings.TrimSpace(nv.String()); trimmed != "" {
 						fileData["note"] = trimmed
@@ -345,6 +370,11 @@ func (h *Handler) buildAuthFileEntryLocked(auth *coreauth.Auth) gin.H {
 	entry["failed"] = auth.Failed
 	entry["recent_requests"] = auth.RecentRequestsSnapshot(time.Now())
 	entry["quota"] = quotaObservationPayloadForProvider(auth.Provider, auth.Quota)
+	concurrency := h.authManager.CredentialConcurrency(auth)
+	entry["concurrency"] = concurrency
+	if concurrency.Limit != nil {
+		entry[coreauth.MetadataMaxConcurrency] = *concurrency.Limit
+	}
 	if modelQuotas := modelQuotaObservationPayload(auth.Provider, auth.ModelStates); len(modelQuotas) > 0 {
 		entry["model_quotas"] = modelQuotas
 	}

@@ -292,7 +292,25 @@ func (h *Handler) PatchAuthFileFields(c *gin.Context) {
 			targetAuth.Metadata = make(map[string]any)
 		}
 
-		if fieldPath == coreauth.AttributeWeight {
+		if fieldPath == coreauth.MetadataMaxConcurrency {
+			if value == nil {
+				delete(targetAuth.Metadata, coreauth.MetadataMaxConcurrency)
+			} else {
+				if _, okNumber := value.(json.Number); !okNumber {
+					c.JSON(http.StatusBadRequest, gin.H{"error": "max_concurrency must be an integer or null"})
+					return
+				}
+				limit, errConcurrency := coreauth.ParseCredentialConcurrencyLimit(value)
+				if errConcurrency != nil {
+					c.JSON(http.StatusBadRequest, gin.H{"error": errConcurrency.Error()})
+					return
+				}
+				targetAuth.Metadata[coreauth.MetadataMaxConcurrency] = limit
+			}
+		} else if rootAuthFileField(fieldPath) == coreauth.MetadataMaxConcurrency {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "max_concurrency does not support nested fields"})
+			return
+		} else if fieldPath == coreauth.AttributeWeight {
 			if value == nil {
 				delete(targetAuth.Metadata, coreauth.AttributeWeight)
 			} else {

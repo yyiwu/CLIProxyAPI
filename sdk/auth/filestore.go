@@ -290,6 +290,9 @@ func (s *FileTokenStore) readAuthFiles(path, baseDir string) ([]*cliproxyauth.Au
 				if errWeight := cliproxyauth.ApplyAuthWeightMetadata(auth, metadata); errWeight != nil {
 					return nil, errWeight
 				}
+				if errConcurrency := cliproxyauth.ApplyAuthConcurrencyMetadata(auth, metadata); errConcurrency != nil {
+					return nil, errConcurrency
+				}
 				cliproxyauth.ApplyCustomHeadersFromMetadata(auth)
 			}
 			return auths, nil

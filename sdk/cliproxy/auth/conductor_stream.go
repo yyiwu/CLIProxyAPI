@@ -233,8 +233,11 @@ func (m *Manager) executeStreamWithModelPool(ctx context.Context, executor Provi
 		}
 		entry := logEntryWithRequestID(ctx)
 		startStream := time.Now()
-		streamResult, errStream := executor.ExecuteStream(ctx, auth, execReq, execOpts)
+		streamResult, errStream := m.executeStreamWithCredentialConcurrency(ctx, executor, auth, execReq, execOpts)
 		errStream = markUpstreamExecutionAttemptFromContext(ctx, errStream)
+		if isCredentialConcurrencyExceeded(errStream) {
+			return nil, errStream
+		}
 		if hasUpstreamExecutionAttempt(errStream) {
 			upstreamErr = errStream
 		}
@@ -252,8 +255,11 @@ func (m *Manager) executeStreamWithModelPool(ctx context.Context, executor Provi
 					didRefreshOnUnauthorized = true
 					ctx = newUpstreamAttemptContext(ctx)
 					startRetry := time.Now()
-					streamResult, errStream = executor.ExecuteStream(ctx, auth, execReq, execOpts)
+					streamResult, errStream = m.executeStreamWithCredentialConcurrency(ctx, executor, auth, execReq, execOpts)
 					errStream = markUpstreamExecutionAttemptFromContext(ctx, errStream)
+					if isCredentialConcurrencyExceeded(errStream) {
+						return nil, errStream
+					}
 					if hasUpstreamExecutionAttempt(errStream) {
 						upstreamErr = errStream
 					}
@@ -328,8 +334,11 @@ func (m *Manager) executeStreamWithModelPool(ctx context.Context, executor Provi
 					didRefreshOnUnauthorized = true
 					ctx = newUpstreamAttemptContext(ctx)
 					startRetry := time.Now()
-					retryStream, retryErr := executor.ExecuteStream(ctx, auth, execReq, execOpts)
+					retryStream, retryErr := m.executeStreamWithCredentialConcurrency(ctx, executor, auth, execReq, execOpts)
 					retryErr = markUpstreamExecutionAttemptFromContext(ctx, retryErr)
+					if isCredentialConcurrencyExceeded(retryErr) {
+						return nil, retryErr
+					}
 					retryStream, retryErr = validateStreamResult(retryStream, retryErr)
 					retryErr = markUpstreamExecutionAttemptFromContext(ctx, retryErr)
 					if retryErr != nil {
