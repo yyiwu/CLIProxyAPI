@@ -117,6 +117,10 @@ func (h *Handler) ListAuthFiles(c *gin.Context) {
 		h.listAuthFilesFromDisk(c, pagination)
 		return
 	}
+	if strings.EqualFold(strings.TrimSpace(c.Query("view")), "concurrency") {
+		h.listAuthFileConcurrency(c, pagination)
+		return
+	}
 	nameFilter := strings.TrimSpace(c.Query("name"))
 	authIndexFilter := strings.TrimSpace(c.Query("auth_index"))
 	h.mu.Lock()
@@ -454,6 +458,11 @@ func (h *Handler) listAuthFilesFromDisk(c *gin.Context, pagination authFilesPagi
 					}
 				}
 			}
+			if cv := gjson.GetBytes(data, coreauth.MetadataMaxConcurrency); cv.Exists() && cv.Type == gjson.Number {
+				if limit, errLimit := coreauth.ParseCredentialConcurrencyLimit(cv.Float()); errLimit == nil && limit > 0 {
+					fileData[coreauth.MetadataMaxConcurrency] = limit
+				}
+			}
 			if nv := gjson.GetBytes(data, "note"); nv.Exists() && nv.Type == gjson.String {
 				if trimmed := strings.TrimSpace(nv.String()); trimmed != "" {
 					fileData["note"] = trimmed
@@ -683,6 +692,11 @@ func (h *Handler) buildAuthFileEntryLocked(auth *coreauth.Auth, quota authFileQu
 	entry["failed"] = auth.Failed
 	entry["recent_requests"] = auth.RecentRequestsSnapshot(time.Now())
 	entry["quota"] = quotaObservationPayloadForProvider(auth.Provider, auth.Quota)
+	concurrency := h.authManager.CredentialConcurrency(auth)
+	entry["concurrency"] = concurrency
+	if concurrency.Limit != nil {
+		entry[coreauth.MetadataMaxConcurrency] = *concurrency.Limit
+	}
 	if modelQuotas := modelQuotaObservationPayload(auth.Provider, auth.ModelStates); len(modelQuotas) > 0 {
 		entry["model_quotas"] = modelQuotas
 	}

@@ -89,6 +89,9 @@ func (m *Manager) Register(ctx context.Context, auth *Auth) (*Auth, error) {
 	if errWeight := ValidateAuthWeight(auth); errWeight != nil {
 		return nil, fmt.Errorf("register auth: %w", errWeight)
 	}
+	if errConcurrency := ValidateAuthConcurrency(auth); errConcurrency != nil {
+		return nil, fmt.Errorf("register auth: %w", errConcurrency)
+	}
 	if auth.ID == "" {
 		auth.ID = uuid.NewString()
 	}
@@ -288,6 +291,9 @@ func (m *Manager) updateInternalLocked(ctx context.Context, base, auth *Auth, mo
 	NormalizeCredentialMetadata(auth.Metadata)
 	if errWeight := ValidateAuthWeight(auth); errWeight != nil {
 		return nil, false, false, fmt.Errorf("update auth: %w", errWeight)
+	}
+	if errConcurrency := ValidateAuthConcurrency(auth); errConcurrency != nil {
+		return nil, false, false, fmt.Errorf("update auth: %w", errConcurrency)
 	}
 	isFileSnapshot := mode == updateModeReplace && auth.HasFileSnapshot()
 	if isFileSnapshot {
@@ -630,6 +636,9 @@ func (m *Manager) Load(ctx context.Context) error {
 		}
 		NormalizeCredentialMetadata(auth.Metadata)
 		if errWeight := ValidateAuthWeight(auth); errWeight != nil {
+			continue
+		}
+		if errConcurrency := ValidateAuthConcurrency(auth); errConcurrency != nil {
 			continue
 		}
 		auth.EnsureIndex()
