@@ -107,6 +107,9 @@ func synthesizeFileAuths(ctx *SynthesisContext, fullPath string, data []byte) ([
 	if errWeight := coreauth.ValidateAuthWeight(&coreauth.Auth{Metadata: metadata}); errWeight != nil {
 		return nil, false, fmt.Errorf("invalid weight in %s: %w", filepath.Base(fullPath), errWeight)
 	}
+	if errConcurrency := coreauth.ValidateAuthConcurrency(&coreauth.Auth{Metadata: metadata}); errConcurrency != nil {
+		return nil, false, fmt.Errorf("invalid max_concurrency in %s: %w", filepath.Base(fullPath), errConcurrency)
+	}
 	// Invalid per-account rules must not drop an existing credential: keep the valid
 	// entries and warn. Write entry points (upload and PATCH) reject them before persisting.
 	perAccountExcluded, errExcluded := ExtractExcludedModelsFromMetadata(metadata)
@@ -220,6 +223,9 @@ func synthesizeFileAuths(ctx *SynthesisContext, fullPath string, data []byte) ([
 				if errWeight := coreauth.ApplyAuthWeightMetadata(auth, metadata); errWeight != nil {
 					return nil, true, fmt.Errorf("invalid plugin auth weight in %s: %w", defaultFileName, errWeight)
 				}
+				if errConcurrency := coreauth.ApplyAuthConcurrencyMetadata(auth, metadata); errConcurrency != nil {
+					return nil, true, fmt.Errorf("invalid plugin auth max_concurrency in %s: %w", defaultFileName, errConcurrency)
+				}
 				coreauth.ApplyAuthPriorityMetadata(auth, metadata)
 				if _, inherited := auth.Attributes[coreauth.AttributeFilePriority]; inherited {
 					if setter, ok := auth.Storage.(interface{ SetMetadata(map[string]any) }); ok {
@@ -290,6 +296,9 @@ func synthesizeFileAuths(ctx *SynthesisContext, fullPath string, data []byte) ([
 	coreauth.ApplyAuthPriorityMetadata(a, metadata)
 	if errWeight := coreauth.ApplyAuthWeightMetadata(a, metadata); errWeight != nil {
 		return nil, false, fmt.Errorf("invalid auth weight in %s: %w", filepath.Base(fullPath), errWeight)
+	}
+	if errConcurrency := coreauth.ApplyAuthConcurrencyMetadata(a, metadata); errConcurrency != nil {
+		return nil, false, fmt.Errorf("invalid auth max_concurrency in %s: %w", filepath.Base(fullPath), errConcurrency)
 	}
 	// Read note from auth file.
 	if rawNote, ok := metadata["note"]; ok {

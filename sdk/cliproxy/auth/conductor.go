@@ -277,7 +277,8 @@ type Manager struct {
 	metadataSaveGate       sync.Map
 	// authLoadGate allows concurrent credential transactions, but excludes whole-store reloads.
 	// Mutations acquire one permit; Load acquires all permits before reading the store.
-	authLoadGate *semaphore.Weighted
+	authLoadGate          *semaphore.Weighted
+	credentialConcurrency *credentialConcurrencyTracker
 }
 
 // NewManager constructs a manager with optional custom selector and hook.
@@ -304,6 +305,7 @@ func NewManager(store Store, selector Selector, hook Hook) *Manager {
 		homePrepareFlights:    make(map[string]*homeAuthPrepareFlight),
 		providerOffsets:       make(map[string]int),
 		modelPoolOffsets:      make(map[string]int),
+		credentialConcurrency: newCredentialConcurrencyTracker(),
 	}
 	// atomic.Value requires non-nil initial value.
 	manager.runtimeConfig.Store(&internalconfig.Config{})

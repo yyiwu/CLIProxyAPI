@@ -79,8 +79,11 @@ func normalizedRoutingRuntimeState(cfg *config.Config) routingRuntimeState {
 		state.strategy = "weighted-round-robin"
 	case "fill-first", "fillfirst", "ff":
 		state.strategy = "fill-first"
+	case "cache-first", "cachefirst", "cf":
+		state.strategy = "cache-first"
 	}
-	state.sessionAffinity = cfg.Routing.SessionAffinity
+	cacheFirst := state.strategy == "cache-first"
+	state.sessionAffinity = cfg.Routing.SessionAffinity || cacheFirst
 	if ttl := strings.TrimSpace(cfg.Routing.SessionAffinityTTL); ttl != "" {
 		if parsed, errParse := time.ParseDuration(ttl); errParse == nil && parsed > 0 {
 			if parsed < time.Second {
@@ -92,7 +95,7 @@ func normalizedRoutingRuntimeState(cfg *config.Config) routingRuntimeState {
 	if state.sessionAffinity && cfg.Routing.SessionAffinitySubagents != nil {
 		state.sessionAffinitySubagents = *cfg.Routing.SessionAffinitySubagents
 	}
-	if state.sessionAffinity {
+	if state.sessionAffinity && !cacheFirst {
 		switch strings.ToLower(strings.TrimSpace(cfg.Routing.SessionAffinityRebindOn)) {
 		case coreauth.SessionAffinityRebindOnQuota:
 			state.sessionAffinityRebindOn = coreauth.SessionAffinityRebindOnQuota
@@ -109,6 +112,7 @@ func newRoutingSelector(state routingRuntimeState) coreauth.Selector {
 
 func newRoutingSelectorWithExisting(state routingRuntimeState, existing coreauth.Selector) coreauth.Selector {
 	var selector coreauth.Selector
+	subagents := state.sessionAffinitySubagents
 	switch state.strategy {
 	case "weighted-round-robin":
 		if existingWeighted := coreauth.UnwrapWeightedRoundRobinSelector(existing); existingWeighted != nil {
@@ -116,13 +120,12 @@ func newRoutingSelectorWithExisting(state routingRuntimeState, existing coreauth
 		} else {
 			selector = &coreauth.WeightedRoundRobinSelector{}
 		}
-	case "fill-first":
+	case "fill-first", "cache-first":
 		selector = &coreauth.FillFirstSelector{}
 	default:
 		selector = &coreauth.RoundRobinSelector{}
 	}
 	if state.sessionAffinity {
-		subagents := state.sessionAffinitySubagents
 		selector = coreauth.NewSessionAffinitySelectorWithConfig(coreauth.SessionAffinityConfig{
 			Fallback:         selector,
 			TTL:              state.sessionAffinityTTL,

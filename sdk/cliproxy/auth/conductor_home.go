@@ -1992,8 +1992,11 @@ func (m *Manager) tryAntigravityCreditsExecuteCandidates(ctx context.Context, re
 			}
 			creditsCtx = refreshExecCtx(creditsCtx)
 			executionSeq := m.nextExecutionSeq()
-			resp, errExec := c.executor.Execute(creditsCtx, c.auth, execReq, execOpts)
+			resp, errExec := m.executeWithCredentialConcurrency(creditsCtx, c.executor, c.auth, execReq, execOpts)
 			syncActiveAuth()
+			if isCredentialConcurrencyExceeded(errExec) {
+				break
+			}
 			errExec = markUpstreamExecutionAttemptFromContext(creditsCtx, errExec)
 			if errExec != nil {
 				if errCtx := creditsCtx.Err(); errCtx != nil {
@@ -2010,8 +2013,11 @@ func (m *Manager) tryAntigravityCreditsExecuteCandidates(ctx context.Context, re
 					didRefreshOnUnauthorized = true
 					creditsCtx = refreshExecCtx(m.newUpstreamAttemptContext(creditsCtx))
 					executionSeq = m.nextExecutionSeq()
-					resp, errExec = c.executor.Execute(creditsCtx, c.auth, execReq, execOpts)
+					resp, errExec = m.executeWithCredentialConcurrency(creditsCtx, c.executor, c.auth, execReq, execOpts)
 					syncActiveAuth()
+					if isCredentialConcurrencyExceeded(errExec) {
+						break
+					}
 					errExec = markUpstreamExecutionAttemptFromContext(creditsCtx, errExec)
 					if errCtx := creditsCtx.Err(); errCtx != nil {
 						return cliproxyexecutor.Response{}, false, errCtx

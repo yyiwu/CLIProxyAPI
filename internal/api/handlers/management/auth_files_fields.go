@@ -333,8 +333,9 @@ func (h *Handler) PatchAuthFileFields(c *gin.Context) {
 		return
 	}
 
+	v8 := c.GetBool(ConfigV8ContextKey)
 	updatedAuth, committed, errModify := h.authManager.Modify(ctx, targetAuth.ID, targetAuth.RegistrationEpoch, func(current *coreauth.Auth) error {
-		return applyAuthFileFieldsPatch(current, req, requestRetryPatch)
+		return applyAuthFileFieldsPatch(current, req, requestRetryPatch, v8)
 	})
 	if errModify != nil {
 		var patchErr *authFileFieldPatchError
@@ -367,7 +368,7 @@ func (e *authFileFieldPatchError) Error() string {
 	return e.message
 }
 
-func applyAuthFileFieldsPatch(targetAuth *coreauth.Auth, req map[string]json.RawMessage, requestRetryPatch authFileRequestRetryPatch) error {
+func applyAuthFileFieldsPatch(targetAuth *coreauth.Auth, req map[string]json.RawMessage, requestRetryPatch authFileRequestRetryPatch, v8 bool) error {
 	coreauth.NormalizeCredentialMetadata(targetAuth.Metadata)
 
 	changed := false
@@ -403,7 +404,20 @@ func applyAuthFileFieldsPatch(targetAuth *coreauth.Auth, req map[string]json.Raw
 			targetAuth.Metadata = make(map[string]any)
 		}
 
-		if fieldPath == coreauth.AttributeWeight {
+		if v8 && rootAuthFileField(fieldPath) == coreauth.MetadataMaxConcurrency {
+			if fieldPath != coreauth.MetadataMaxConcurrency {
+				return &authFileFieldPatchError{message: "max_concurrency does not support nested fields"}
+			}
+			if value == nil {
+				delete(targetAuth.Metadata, coreauth.MetadataMaxConcurrency)
+			} else {
+				limit, errConcurrency := coreauth.ParseCredentialConcurrencyLimit(value)
+				if errConcurrency != nil {
+					return &authFileFieldPatchError{message: errConcurrency.Error()}
+				}
+				targetAuth.Metadata[coreauth.MetadataMaxConcurrency] = limit
+			}
+		} else if fieldPath == coreauth.AttributeWeight {
 			if value == nil {
 				delete(targetAuth.Metadata, coreauth.AttributeWeight)
 			} else {

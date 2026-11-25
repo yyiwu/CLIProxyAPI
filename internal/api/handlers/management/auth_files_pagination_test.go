@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/MoeForge/moego/json"
@@ -181,6 +182,7 @@ func requestAuthFilesPage(t *testing.T, handler *Handler, requestPath string) au
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)
 	ctx.Request = httptest.NewRequest(http.MethodGet, requestPath, nil)
+	ctx.Set(ConfigV8ContextKey, strings.HasPrefix(ctx.Request.URL.Path, "/v8/management/"))
 
 	handler.ListAuthFiles(ctx)
 

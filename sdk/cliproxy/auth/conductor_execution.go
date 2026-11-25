@@ -1408,8 +1408,16 @@ func (m *Manager) executeMixedOnce(ctx context.Context, providers []string, req 
 			executionSeq := m.nextExecutionSeq()
 			startExec := time.Now()
 			var preRefreshExecErr error
-			resp, errExec := executor.Execute(execCtx, auth, execReq, execOpts)
+			resp, errExec := m.executeWithCredentialConcurrency(execCtx, executor, auth, execReq, execOpts)
 			syncActiveAuth()
+			if isCredentialConcurrencyExceeded(errExec) {
+				if authErr == nil {
+					delete(attempted, auth.ID)
+					lastAttemptedAuthID = ""
+					lastErr = keepPreferredCandidateError(lastErr, errExec)
+				}
+				break
+			}
 			errExec = markUpstreamExecutionAttemptFromContext(execCtx, errExec)
 			durationExec := time.Since(startExec)
 			if errExec != nil {
@@ -1428,8 +1436,13 @@ func (m *Manager) executeMixedOnce(ctx context.Context, providers []string, req 
 					execCtx = syncMetadataSessionToContext(execCtx, execOpts.Metadata)
 					executionSeq = m.nextExecutionSeq()
 					startRetry := time.Now()
-					resp, errExec = executor.Execute(execCtx, auth, execReq, execOpts)
+					resp, errExec = m.executeWithCredentialConcurrency(execCtx, executor, auth, execReq, execOpts)
 					syncActiveAuth()
+					if isCredentialConcurrencyExceeded(errExec) {
+						syncPreferredUpstreamError(&upstreamErr, preRefreshExecErr)
+						lastErr = keepPreferredCandidateError(lastErr, preRefreshExecErr)
+						break
+					}
 					errExec = markUpstreamExecutionAttemptFromContext(execCtx, errExec)
 					durationRetry := time.Since(startRetry)
 					if errExec != nil {
@@ -1710,8 +1723,16 @@ func (m *Manager) executeCountMixedOnce(ctx context.Context, providers []string,
 			executionSeq := m.nextExecutionSeq()
 			startExec := time.Now()
 			var preRefreshExecErr error
-			resp, errExec := executor.CountTokens(execCtx, auth, execReq, execOpts)
+			resp, errExec := m.countTokensWithCredentialConcurrency(execCtx, executor, auth, execReq, execOpts)
 			syncActiveAuth()
+			if isCredentialConcurrencyExceeded(errExec) {
+				if authErr == nil {
+					delete(attempted, auth.ID)
+					lastAttemptedAuthID = ""
+					lastErr = keepPreferredCandidateError(lastErr, errExec)
+				}
+				break
+			}
 			errExec = markUpstreamExecutionAttemptFromContext(execCtx, errExec)
 			durationExec := time.Since(startExec)
 			if errExec != nil {
@@ -1730,8 +1751,13 @@ func (m *Manager) executeCountMixedOnce(ctx context.Context, providers []string,
 					execCtx = syncMetadataSessionToContext(execCtx, execOpts.Metadata)
 					executionSeq = m.nextExecutionSeq()
 					startRetry := time.Now()
-					resp, errExec = executor.CountTokens(execCtx, auth, execReq, execOpts)
+					resp, errExec = m.countTokensWithCredentialConcurrency(execCtx, executor, auth, execReq, execOpts)
 					syncActiveAuth()
+					if isCredentialConcurrencyExceeded(errExec) {
+						syncPreferredUpstreamError(&upstreamErr, preRefreshExecErr)
+						lastErr = keepPreferredCandidateError(lastErr, preRefreshExecErr)
+						break
+					}
 					errExec = markUpstreamExecutionAttemptFromContext(execCtx, errExec)
 					durationRetry := time.Since(startRetry)
 					if errExec != nil {
@@ -2197,6 +2223,12 @@ func (m *Manager) executeStreamMixedOnce(ctx context.Context, providers []string
 		}
 		streamResult, errStream := m.executeStreamWithModelPool(execCtx, executor, auth, provider, execReq, execOpts, routeModel, streamExecutionModel, models, pooled, aliasResult, routing, !homeMode || selection != nil, selection != nil)
 		if errStream != nil {
+			if isCredentialConcurrencyExceeded(errStream) {
+				delete(attempted, auth.ID)
+				lastAttemptedAuthID = ""
+				lastErr = keepPreferredCandidateError(lastErr, errStream)
+				continue
+			}
 			if isCredentialTerminatedError(errStream) {
 				recordRequestRefusedAuth(ctx, auth.ID)
 				if selection != nil {
@@ -3669,7 +3701,7 @@ func (m *Manager) HttpRequest(ctx context.Context, auth *Auth, req *http.Request
 	if ctx == nil {
 		ctx = req.Context()
 	}
-	return exec.HttpRequest(m.withExecutionAuthRefresh(ctx, executionAuthRefreshOptions{}), auth, req)
+	return m.httpRequestWithCredentialConcurrency(m.withExecutionAuthRefresh(ctx, executionAuthRefreshOptions{}), exec, auth, req)
 }
 
 func ensureCanonicalSessionMetadata(metadata map[string]any, headers http.Header, payload []byte) map[string]any {
@@ -4150,6 +4182,15 @@ func (m *Manager) VerifyInference(ctx context.Context, id, model string) (*Auth,
 		})
 	}
 
+	releaseVerify, errAcquire := m.acquireCredentialConcurrency(auth)
+	if errAcquire != nil {
+		return auth, errAcquire
+	}
+	defer func() {
+		if releaseVerify != nil {
+			releaseVerify()
+		}
+	}()
 	for {
 		activeVerifyAuth.Store(auth)
 		streamRes, errStream := executor.ExecuteStream(verifyRefreshCtx(execCtx), auth, req, opts)
@@ -4252,7 +4293,8 @@ func (m *Manager) VerifyInference(ctx context.Context, id, model string) (*Auth,
 			for {
 				select {
 				case <-execCtx.Done():
-					discardStreamChunks(streamRes.Chunks)
+					discardStreamChunksAfter(streamRes.Chunks, releaseVerify)
+					releaseVerify = nil
 					updated, _ := m.GetByID(auth.ID)
 					return updated, execCtx.Err()
 				case chunk, okChunk := <-streamRes.Chunks:

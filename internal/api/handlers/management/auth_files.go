@@ -117,12 +117,17 @@ func (h *Handler) ListAuthFiles(c *gin.Context) {
 		h.listAuthFilesFromDisk(c, pagination)
 		return
 	}
+	v8 := c.GetBool(ConfigV8ContextKey)
+	if v8 && strings.EqualFold(strings.TrimSpace(c.Query("view")), "concurrency") {
+		h.listAuthFileConcurrency(c, pagination)
+		return
+	}
 	nameFilter := strings.TrimSpace(c.Query("name"))
 	authIndexFilter := strings.TrimSpace(c.Query("auth_index"))
 	h.mu.Lock()
 	host := h.pluginHost
 	h.mu.Unlock()
-	quota := authFileQuotaContext{v8: c.GetBool(ConfigV8ContextKey)}
+	quota := authFileQuotaContext{v8: v8}
 	if host != nil {
 		quota.pluginIDs = host.QuotaProviderPluginIDs(c.Request.Context())
 	}
@@ -476,6 +481,13 @@ func (h *Handler) listAuthFilesFromDisk(c *gin.Context, pagination authFilesPagi
 			if requestRetry, okRetry := authFileRequestRetryFromJSON(data); okRetry {
 				fileData["request_retry"] = requestRetry
 			}
+			if c.GetBool(ConfigV8ContextKey) {
+				if raw := ojson.GetBytes(data, coreauth.MetadataMaxConcurrency); raw.Type == ojson.Number {
+					if limit, errLimit := coreauth.ParseCredentialConcurrencyLimit(raw.Num); errLimit == nil && limit > 0 {
+						fileData[coreauth.MetadataMaxConcurrency] = limit
+					}
+				}
+			}
 		}
 
 		files = append(files, fileData)
@@ -688,6 +700,13 @@ func (h *Handler) buildAuthFileEntryLocked(auth *coreauth.Auth, quota authFileQu
 	entry["failed"] = auth.Failed
 	entry["recent_requests"] = auth.RecentRequestsSnapshot(time.Now())
 	entry["quota"] = quotaObservationPayloadForProvider(auth.Provider, auth.Quota)
+	if quota.v8 && h.authManager != nil && !h.authManager.HomeEnabled() {
+		concurrency := h.authManager.CredentialConcurrency(auth)
+		entry["concurrency"] = concurrency
+		if concurrency.Limit != nil {
+			entry[coreauth.MetadataMaxConcurrency] = *concurrency.Limit
+		}
+	}
 	if modelQuotas := modelQuotaObservationPayload(auth.Provider, auth.ModelStates); len(modelQuotas) > 0 {
 		entry["model_quotas"] = modelQuotas
 	}
